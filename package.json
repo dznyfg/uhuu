@@ -1,0 +1,74 @@
+{
+  "name": "acai-caravelas-impressao-electron",
+  "version": "1.0.0",
+  "description": "Aplicativo desktop de impressao em tempo real do Açaí Caravelas",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "author": "Açaí Caravelas",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "verificar": "tsc --noEmit && vite build --mode producao",
+    "empacotar": "npm run build && electron-builder --publish never",
+    "empacotar:win": "npm run build && electron-builder --publish never --win nsis portable"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "electron-store": "^10.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "com.toplanches.impressao",
+    "productName": "Açaí Caravelas Impressao",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "public/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Açaí Caravelas Impressao"
+    }
+  }
+}
