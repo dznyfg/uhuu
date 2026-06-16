@@ -48,7 +48,7 @@ const dadosExemplo: DadosTicketImpressao = {
   }
 }
 
-const html = gerarHtmlTicketParaImpressao(dadosExemplo)
+const html = gerarHtmlTicketParaImpressao(dadosExemplo, configuracaoPadrao)
 const css = gerarCssTicket(configuracaoPadrao)
 
 const falhas: string[] = []
@@ -63,6 +63,14 @@ if (!html.includes('Açaí Caravelas')) {
 
 if (!html.includes('Açaí na garrafa com Nutella')) {
   falhas.push('HTML de impressao nao contem item do pedido')
+}
+
+if (!html.includes('<br>')) {
+  falhas.push('HTML de impressao nao usa quebras de linha explicitas')
+}
+
+if (!html.includes('Pedido:</b>')) {
+  falhas.push('HTML de impressao nao contem linha de pedido formatada')
 }
 
 if (!css.includes('@page')) {

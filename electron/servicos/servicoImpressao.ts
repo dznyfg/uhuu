@@ -1,11 +1,18 @@
 import { BrowserWindow } from 'electron'
-import { gerarCssTicket, gerarHtmlTicketParaImpressao } from './formatadorTicket'
+import { gerarHtmlTicketParaImpressao } from './formatadorTicket'
 import { ConfiguracaoAplicacao, DadosTicketImpressao } from './tipos'
 
 const aguardarMs = (tempoMs: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, tempoMs)
   })
+
+const obterLarguraPapelMicrons = (configuracao: ConfiguracaoAplicacao) => {
+  const larguraMm = Number(configuracao.larguraPapelMm)
+  const larguraValida = Number.isFinite(larguraMm) ? larguraMm : 80
+  const larguraLimitada = Math.min(Math.max(larguraValida, 48), 120)
+  return Math.round(larguraLimitada * 1000)
+}
 
 export class ServicoImpressao {
   private obterJanelaPrincipal: () => BrowserWindow | null
@@ -35,14 +42,13 @@ export class ServicoImpressao {
       return { sucesso: false, erro: 'Nenhuma impressora foi configurada.' }
     }
 
-    const htmlTicket = gerarHtmlTicketParaImpressao(dadosTicket)
-    const cssTicket = gerarCssTicket(configuracao)
+    const htmlTicket = gerarHtmlTicketParaImpressao(dadosTicket, configuracao)
 
     for (let copiaAtual = 1; copiaAtual <= configuracao.copias; copiaAtual += 1) {
       const resultado = await this.imprimirCopiaSilenciosa(
         htmlTicket,
-        cssTicket,
-        configuracao.nomeImpressora
+        configuracao.nomeImpressora,
+        configuracao
       )
 
       if (!resultado.sucesso) {
@@ -91,8 +97,8 @@ export class ServicoImpressao {
 
   private async imprimirCopiaSilenciosa(
     htmlTicket: string,
-    cssTicket: string,
-    nomeImpressora: string
+    nomeImpressora: string,
+    configuracao: ConfiguracaoAplicacao
   ): Promise<{ sucesso: boolean; erro?: string }> {
     const janelaImpressao = new BrowserWindow({
       show: false,
@@ -107,9 +113,9 @@ export class ServicoImpressao {
 
     try {
       await this.carregarHtmlTicket(janelaImpressao, htmlTicket)
-      await janelaImpressao.webContents.insertCSS(cssTicket)
-      await janelaImpressao.webContents.executeJavaScript('document.fonts.ready', true)
-      await aguardarMs(200)
+      await aguardarMs(300)
+
+      const larguraMicrons = obterLarguraPapelMicrons(configuracao)
 
       const impressoComSucesso = await new Promise<boolean>((resolve) => {
         janelaImpressao.webContents.print(
@@ -119,6 +125,10 @@ export class ServicoImpressao {
             deviceName: nomeImpressora,
             margins: {
               marginType: 'none'
+            },
+            pageSize: {
+              width: larguraMicrons,
+              height: 300000
             }
           },
           (sucesso, erro) => {

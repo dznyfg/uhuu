@@ -72,6 +72,290 @@ const formatarEntrega = (pedido: PedidoTicket) => {
   return pedido.tipo_entrega || '-'
 }
 
+const temTextoUtil = (valor?: string | null) => {
+  const texto = String(valor ?? '').trim()
+  if (!texto) return false
+  return texto !== '-'
+}
+
+const limitarNumero = (valor: unknown, minimo: number, maximo: number, fallback: number) => {
+  const numero = Number(valor)
+  if (!Number.isFinite(numero)) return fallback
+  return Math.min(Math.max(numero, minimo), maximo)
+}
+
+const calcularMetricasTicket = (configuracao: ConfiguracaoAplicacao) => {
+  const larguraPapelMm = limitarNumero(configuracao.larguraPapelMm, 48, 120, 80)
+  const tamanhoFonteBasePx = limitarNumero(configuracao.tamanhoFonteBasePx, 10, 24, 15)
+  const espacamentoLinha = limitarNumero(configuracao.espacamentoLinha, 1, 2.2, 1.35)
+  const espacamentoItensPx = limitarNumero(configuracao.espacamentoItensPx, 0, 24, 8)
+  const recuoDetalhesPx = Math.round(Math.max(30, tamanhoFonteBasePx * 2.8))
+  const larguraQuantidadePx = Math.round(Math.max(26, tamanhoFonteBasePx * 2.1))
+  const fonteTituloPx = Math.round(tamanhoFonteBasePx * 1.45)
+  const fonteSubtituloPx = Math.round(tamanhoFonteBasePx * 0.9)
+  const paddingLateralMm = Math.min(4.5, Math.max(2.2, larguraPapelMm * 0.045))
+
+  return {
+    larguraPapelMm,
+    tamanhoFonteBasePx,
+    espacamentoLinha,
+    espacamentoItensPx,
+    recuoDetalhesPx,
+    larguraQuantidadePx,
+    fonteTituloPx,
+    fonteSubtituloPx,
+    paddingLateralMm
+  }
+}
+
+const quebrarLinha = () => '<br>'
+
+const negrito = (texto: string) => `<b>${texto}</b>`
+
+const linhaTexto = (texto: string) =>
+  `<div style="display:block;width:100%;margin:0;padding:0;">${texto}${quebrarLinha()}</div>`
+
+const linhaRotulo = (rotulo: string, valor: string | number) =>
+  linhaTexto(`${negrito(`${rotulo}:`)} ${escaparHtml(valor)}`)
+
+const linhaSimples = (texto: string) => linhaTexto(escaparHtml(texto))
+
+const divisorTexto = () => linhaTexto('--------------------------------')
+
+const recuo = () => '    '
+
+const montarItensTermico = (itens: ItemTicket[]) => {
+  if (itens.length === 0) {
+    return linhaSimples('Sem itens para impressao.')
+  }
+
+  return itens
+    .map((item) => {
+      const adicionais = (item.item_adicionais || [])
+        .map(
+          (adicional) =>
+            linhaTexto(
+              `${recuo()}+ ${adicional.quantidade}x ${escaparHtml(adicional.nome)}`
+            )
+        )
+        .join('')
+
+      const observacoes = item.observacoes
+        ? linhaTexto(`${recuo()}OBS: ${escaparHtml(item.observacoes)}`)
+        : ''
+
+      return (
+        linhaTexto(`${item.quantidade}x ${negrito(escaparHtml(item.nome_item))}`) +
+        adicionais +
+        observacoes
+      )
+    })
+    .join('')
+}
+
+const montarPagamentosTermico = (pedido: PedidoTicket) => {
+  const formaPagamentoPrincipal = formatarFormaPagamento(pedido.forma_pagamento)
+  const pagamentosDivididos = (pedido.pagamentos_divididos || [])
+    .filter((pagamento) => Number.isFinite(Number(pagamento?.valor)))
+    .filter((pagamento) => Number(pagamento.valor) > 0)
+
+  if (formaPagamentoPrincipal.toLowerCase() === 'dividido' && pagamentosDivididos.length > 0) {
+    const linhasDivisao = pagamentosDivididos
+      .map((pagamento) =>
+        linhaRotulo(
+          `- ${formatarFormaPagamento(pagamento.forma_pagamento)}`,
+          formatarMoeda(Number(pagamento.valor))
+        )
+      )
+      .join('')
+
+    return linhaRotulo('Pagamento', 'Dividido') + linhaTexto(negrito('Divisao:')) + linhasDivisao
+  }
+
+  if (formaPagamentoPrincipal) {
+    return linhaRotulo('Pagamento', formaPagamentoPrincipal)
+  }
+
+  return ''
+}
+
+const montarConteudoTicketTermico = (dados: DadosTicketImpressao) => {
+  const pedido = dados.pedido
+  const numeroMesa = obterNumeroMesa(pedido)
+  const numeroComanda = obterNumeroComanda(pedido)
+  const itens = pedido.itens_pedido || []
+  const telefone = String(pedido.telefone || '').trim()
+  const endereco = String(pedido.endereco || '').trim()
+  const bairro = String(pedido.bairro || '').trim()
+
+  const totalItens = itens.reduce((acumulador, item) => acumulador + item.subtotal, 0)
+  const taxaEntrega = Number(pedido.taxa_entrega || 0)
+  const taxaServico = Number(pedido.taxa_servico || 0)
+  const totalPedido = Number(
+    pedido.total ?? (dados.tipo === 'cliente' ? totalItens + taxaEntrega + taxaServico : totalItens)
+  )
+
+  const cabecalho =
+    '<center>' +
+    linhaTexto(negrito('Açaí Caravelas')) +
+    linhaTexto(negrito(dados.tipo === 'cozinha' ? 'TICKET COZINHA' : 'TICKET CLIENTE')) +
+    linhaTexto(negrito(dados.escopo === 'itens_novos' ? 'NOVOS ITENS' : 'PEDIDO COMPLETO')) +
+    `</center>${quebrarLinha()}`
+
+  const detalhesPedido =
+    linhaRotulo(
+      'Pedido',
+      `#${(pedido.numero_pedido || '').toString() || pedido.id.slice(0, 8)}`
+    ) +
+    linhaRotulo('Cliente', pedido.nome_cliente || 'Cliente') +
+    linhaRotulo('Entrega', formatarEntrega(pedido)) +
+    (numeroMesa ? linhaRotulo('Mesa', numeroMesa) : '') +
+    (numeroComanda ? linhaRotulo('Comanda', numeroComanda) : '') +
+    (temTextoUtil(telefone) ? linhaSimples(telefone) : '') +
+    (temTextoUtil(endereco) ? linhaSimples(endereco) : '') +
+    (temTextoUtil(bairro) ? linhaSimples(bairro) : '') +
+    linhaRotulo('Data', formatarDataHora(pedido.created_at))
+
+  const secaoItens =
+    divisorTexto() +
+    linhaTexto(negrito('ITENS')) +
+    montarItensTermico(itens)
+
+  const secaoTotais =
+    divisorTexto() +
+    linhaRotulo('Subtotal', formatarMoeda(totalItens)) +
+    (taxaEntrega > 0 ? linhaRotulo('Taxa', formatarMoeda(taxaEntrega)) : '') +
+    (taxaServico > 0 ? linhaRotulo('Taxa servico', formatarMoeda(taxaServico)) : '') +
+    linhaTexto(`${negrito('TOTAL:')} ${formatarMoeda(totalPedido)}`) +
+    montarPagamentosTermico(pedido) +
+    (pedido.troco_para
+      ? linhaRotulo('Troco para', formatarMoeda(Number(pedido.troco_para)))
+      : '') +
+    (temTextoUtil(pedido.observacoes) ? linhaRotulo('Obs geral', pedido.observacoes!) : '')
+
+  const rodape =
+    divisorTexto() +
+    `<center>${linhaTexto(`Impresso em ${escaparHtml(formatarDataHora(new Date().toISOString()))}`)}</center>`
+
+  return cabecalho + divisorTexto() + detalhesPedido + secaoItens + secaoTotais + rodape
+}
+
+export const gerarCssTicket = (configuracao: ConfiguracaoAplicacao) => {
+  const metricas = calcularMetricasTicket(configuracao)
+  const {
+    larguraPapelMm,
+    tamanhoFonteBasePx,
+    espacamentoLinha,
+    espacamentoItensPx,
+    recuoDetalhesPx,
+    larguraQuantidadePx,
+    fonteTituloPx,
+    fonteSubtituloPx,
+    paddingLateralMm
+  } = metricas
+
+  return `
+    @page {
+      size: ${larguraPapelMm}mm auto;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      margin: 0;
+      width: ${larguraPapelMm}mm;
+      max-width: ${larguraPapelMm}mm;
+    }
+    body {
+      padding: ${paddingLateralMm}mm;
+      font-family: Arial, sans-serif;
+      color: #000;
+      background: #fff;
+      font-size: ${tamanhoFonteBasePx}px;
+      line-height: ${espacamentoLinha};
+    }
+    .ticket {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      display: block;
+    }
+    .cabecalho {
+      text-align: center;
+      margin-bottom: ${Math.max(5, Math.round(tamanhoFonteBasePx * 0.45))}px;
+    }
+    .titulo {
+      font-size: ${fonteTituloPx}px;
+      font-weight: 700;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+    .subtitulo {
+      font-size: ${fonteSubtituloPx}px;
+      font-weight: 700;
+      margin-top: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.18))}px;
+      line-height: 1.2;
+    }
+    .divisor {
+      border-top: 2px dashed #111;
+      margin: ${Math.max(6, Math.round(tamanhoFonteBasePx * 0.5))}px 0;
+    }
+    .linha {
+      display: block;
+      margin-bottom: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.25))}px;
+      word-break: break-word;
+    }
+    .label {
+      font-weight: 700;
+    }
+    .item {
+      display: block;
+      margin-bottom: ${espacamentoItensPx}px;
+    }
+    .linha-principal {
+      display: block;
+      margin-bottom: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.2))}px;
+    }
+    .quantidade {
+      font-weight: 700;
+      display: inline;
+    }
+    .nome-item {
+      font-weight: 700;
+      display: inline;
+    }
+    .adicional {
+      display: block;
+      padding-left: ${recuoDetalhesPx}px;
+      font-size: ${Math.max(11, Math.round(tamanhoFonteBasePx * 0.92))}px;
+      word-break: break-word;
+    }
+    .observacao {
+      display: block;
+      padding-left: ${recuoDetalhesPx}px;
+      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
+      font-style: italic;
+      word-break: break-word;
+    }
+    .rodape {
+      text-align: center;
+      margin-top: ${Math.max(8, Math.round(tamanhoFonteBasePx * 0.65))}px;
+      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
+      color: #333;
+    }
+    .total {
+      font-size: ${Math.round(tamanhoFonteBasePx * 1.22)}px;
+      font-weight: 700;
+    }
+    .texto-vazio {
+      font-style: italic;
+      color: #555;
+    }
+  `
+}
+
 const montarItensHtml = (itens: ItemTicket[]) => {
   if (itens.length === 0) {
     return '<p class="texto-vazio">Sem itens para impressao.</p>'
@@ -131,167 +415,14 @@ const montarPagamentosHtml = (pedido: PedidoTicket) => {
   return ''
 }
 
-const limitarNumero = (valor: unknown, minimo: number, maximo: number, fallback: number) => {
-  const numero = Number(valor)
-  if (!Number.isFinite(numero)) return fallback
-  return Math.min(Math.max(numero, minimo), maximo)
-}
-
-const calcularMetricasTicket = (configuracao: ConfiguracaoAplicacao) => {
-  const larguraPapelMm = limitarNumero(configuracao.larguraPapelMm, 48, 120, 80)
-  const tamanhoFonteBasePx = limitarNumero(configuracao.tamanhoFonteBasePx, 10, 24, 15)
-  const espacamentoLinha = limitarNumero(configuracao.espacamentoLinha, 1, 2.2, 1.35)
-  const espacamentoItensPx = limitarNumero(configuracao.espacamentoItensPx, 0, 24, 8)
-  const recuoDetalhesPx = Math.round(Math.max(30, tamanhoFonteBasePx * 2.8))
-  const larguraQuantidadePx = Math.round(Math.max(26, tamanhoFonteBasePx * 2.1))
-  const fonteTituloPx = Math.round(tamanhoFonteBasePx * 1.45)
-  const fonteSubtituloPx = Math.round(tamanhoFonteBasePx * 0.9)
-  const paddingLateralMm = Math.min(4.5, Math.max(2.2, larguraPapelMm * 0.045))
-
-  return {
-    larguraPapelMm,
-    tamanhoFonteBasePx,
-    espacamentoLinha,
-    espacamentoItensPx,
-    recuoDetalhesPx,
-    larguraQuantidadePx,
-    fonteTituloPx,
-    fonteSubtituloPx,
-    paddingLateralMm
-  }
-}
-
-export const gerarCssTicket = (configuracao: ConfiguracaoAplicacao) => {
-  const metricas = calcularMetricasTicket(configuracao)
-  const {
-    larguraPapelMm,
-    tamanhoFonteBasePx,
-    espacamentoLinha,
-    espacamentoItensPx,
-    recuoDetalhesPx,
-    larguraQuantidadePx,
-    fonteTituloPx,
-    fonteSubtituloPx,
-    paddingLateralMm
-  } = metricas
-
-  return `
-    @page {
-      size: ${larguraPapelMm}mm auto;
-      margin: 0;
-    }
-    * {
-      box-sizing: border-box;
-    }
-    html,
-    body {
-      margin: 0;
-      width: ${larguraPapelMm}mm;
-      max-width: ${larguraPapelMm}mm;
-    }
-    body {
-      padding: ${paddingLateralMm}mm;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      color: #000;
-      background: #fff;
-      font-size: ${tamanhoFonteBasePx}px;
-      line-height: ${espacamentoLinha};
-    }
-    .ticket {
-      width: 100%;
-      max-width: 100%;
-      margin: 0 auto;
-      display: block;
-    }
-    .cabecalho {
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: ${Math.max(5, Math.round(tamanhoFonteBasePx * 0.45))}px;
-    }
-    .titulo {
-      font-size: ${fonteTituloPx}px;
-      font-weight: 700;
-      line-height: 1.1;
-      letter-spacing: 0.2px;
-      word-break: break-word;
-      width: 100%;
-      text-align: center;
-      margin: 0 auto;
-    }
-    .subtitulo {
-      font-size: ${fonteSubtituloPx}px;
-      font-weight: 700;
-      margin-top: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.18))}px;
-      line-height: 1.2;
-      width: 100%;
-      text-align: center;
-    }
-    .divisor {
-      border-top: 2px dashed #111;
-      margin: ${Math.max(6, Math.round(tamanhoFonteBasePx * 0.5))}px 0;
-    }
-    .linha {
-      margin-bottom: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.25))}px;
-      word-break: break-word;
-    }
-    .label {
-      font-weight: 700;
-    }
-    .item {
-      margin-bottom: ${espacamentoItensPx}px;
-    }
-    .linha-principal {
-      display: flex;
-      gap: ${Math.max(4, Math.round(tamanhoFonteBasePx * 0.35))}px;
-      align-items: flex-start;
-    }
-    .quantidade {
-      font-weight: 700;
-      min-width: ${larguraQuantidadePx}px;
-      line-height: 1.2;
-    }
-    .nome-item {
-      font-weight: 700;
-      flex: 1;
-      line-height: 1.2;
-      word-break: break-word;
-    }
-    .adicional {
-      padding-left: ${recuoDetalhesPx}px;
-      font-size: ${Math.max(11, Math.round(tamanhoFonteBasePx * 0.92))}px;
-      word-break: break-word;
-    }
-    .observacao {
-      padding-left: ${recuoDetalhesPx}px;
-      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
-      font-style: italic;
-      word-break: break-word;
-    }
-    .rodape {
-      text-align: center;
-      margin-top: ${Math.max(8, Math.round(tamanhoFonteBasePx * 0.65))}px;
-      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
-      color: #333;
-    }
-    .total {
-      font-size: ${Math.round(tamanhoFonteBasePx * 1.22)}px;
-      font-weight: 700;
-    }
-    .texto-vazio {
-      font-style: italic;
-      color: #555;
-    }
-  `
-}
-
-const montarConteudoTicket = (dados: DadosTicketImpressao) => {
+const montarConteudoTicketPreview = (dados: DadosTicketImpressao) => {
   const pedido = dados.pedido
   const numeroMesa = obterNumeroMesa(pedido)
   const numeroComanda = obterNumeroComanda(pedido)
   const itens = pedido.itens_pedido || []
+  const telefone = String(pedido.telefone || '').trim()
+  const endereco = String(pedido.endereco || '').trim()
+  const bairro = String(pedido.bairro || '').trim()
 
   const totalItens = itens.reduce((acumulador, item) => acumulador + item.subtotal, 0)
   const taxaEntrega = Number(pedido.taxa_entrega || 0)
@@ -315,9 +446,9 @@ const montarConteudoTicket = (dados: DadosTicketImpressao) => {
       <div class="linha"><span class="label">Entrega:</span> ${escaparHtml(formatarEntrega(pedido))}</div>
       ${numeroMesa ? `<div class="linha"><span class="label">Mesa:</span> ${escaparHtml(numeroMesa)}</div>` : ''}
       ${numeroComanda ? `<div class="linha"><span class="label">Comanda:</span> ${escaparHtml(numeroComanda)}</div>` : ''}
-      <div class="linha"><span class="label">Telefone:</span> ${escaparHtml(pedido.telefone || '-')}</div>
-      <div class="linha"><span class="label">Endereco:</span> ${escaparHtml(pedido.endereco || '-')}</div>
-      <div class="linha"><span class="label">Bairro:</span> ${escaparHtml(pedido.bairro || '-')}</div>
+      ${temTextoUtil(telefone) ? `<div class="linha">${escaparHtml(telefone)}</div>` : ''}
+      ${temTextoUtil(endereco) ? `<div class="linha">${escaparHtml(endereco)}</div>` : ''}
+      ${temTextoUtil(bairro) ? `<div class="linha">${escaparHtml(bairro)}</div>` : ''}
       <div class="linha"><span class="label">Data:</span> ${escaparHtml(formatarDataHora(pedido.created_at))}</div>
 
       <div class="divisor"></div>
@@ -343,15 +474,19 @@ const montarConteudoTicket = (dados: DadosTicketImpressao) => {
   `
 }
 
-export const gerarHtmlTicketParaImpressao = (dados: DadosTicketImpressao) => {
-  const conteudo = montarConteudoTicket(dados)
+export const gerarHtmlTicketParaImpressao = (
+  dados: DadosTicketImpressao,
+  configuracao: ConfiguracaoAplicacao
+) => {
+  const metricas = calcularMetricasTicket(configuracao)
+  const conteudo = montarConteudoTicketTermico(dados)
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
 </head>
-<body>
+<body style="margin:0;padding:${metricas.paddingLateralMm}mm;font-family:Arial,sans-serif;font-size:${metricas.tamanhoFonteBasePx}px;line-height:${metricas.espacamentoLinha};color:#000;background:#fff;">
 ${conteudo}
 </body>
 </html>`
@@ -362,7 +497,7 @@ export const gerarHtmlTicket = (
   configuracao: ConfiguracaoAplicacao
 ) => {
   const css = gerarCssTicket(configuracao)
-  const conteudo = montarConteudoTicket(dados)
+  const conteudo = montarConteudoTicketPreview(dados)
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
