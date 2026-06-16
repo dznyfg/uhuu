@@ -131,16 +131,13 @@ const montarPagamentosHtml = (pedido: PedidoTicket) => {
   return ''
 }
 
-export const gerarHtmlTicket = (
-  dados: DadosTicketImpressao,
-  configuracao: ConfiguracaoAplicacao
-) => {
-  const limitarNumero = (valor: unknown, minimo: number, maximo: number, fallback: number) => {
-    const numero = Number(valor)
-    if (!Number.isFinite(numero)) return fallback
-    return Math.min(Math.max(numero, minimo), maximo)
-  }
+const limitarNumero = (valor: unknown, minimo: number, maximo: number, fallback: number) => {
+  const numero = Number(valor)
+  if (!Number.isFinite(numero)) return fallback
+  return Math.min(Math.max(numero, minimo), maximo)
+}
 
+const calcularMetricasTicket = (configuracao: ConfiguracaoAplicacao) => {
   const larguraPapelMm = limitarNumero(configuracao.larguraPapelMm, 48, 120, 80)
   const tamanhoFonteBasePx = limitarNumero(configuracao.tamanhoFonteBasePx, 10, 24, 15)
   const espacamentoLinha = limitarNumero(configuracao.espacamentoLinha, 1, 2.2, 1.35)
@@ -151,6 +148,146 @@ export const gerarHtmlTicket = (
   const fonteSubtituloPx = Math.round(tamanhoFonteBasePx * 0.9)
   const paddingLateralMm = Math.min(4.5, Math.max(2.2, larguraPapelMm * 0.045))
 
+  return {
+    larguraPapelMm,
+    tamanhoFonteBasePx,
+    espacamentoLinha,
+    espacamentoItensPx,
+    recuoDetalhesPx,
+    larguraQuantidadePx,
+    fonteTituloPx,
+    fonteSubtituloPx,
+    paddingLateralMm
+  }
+}
+
+export const gerarCssTicket = (configuracao: ConfiguracaoAplicacao) => {
+  const metricas = calcularMetricasTicket(configuracao)
+  const {
+    larguraPapelMm,
+    tamanhoFonteBasePx,
+    espacamentoLinha,
+    espacamentoItensPx,
+    recuoDetalhesPx,
+    larguraQuantidadePx,
+    fonteTituloPx,
+    fonteSubtituloPx,
+    paddingLateralMm
+  } = metricas
+
+  return `
+    @page {
+      size: ${larguraPapelMm}mm auto;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      margin: 0;
+      width: ${larguraPapelMm}mm;
+      max-width: ${larguraPapelMm}mm;
+    }
+    body {
+      padding: ${paddingLateralMm}mm;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #000;
+      background: #fff;
+      font-size: ${tamanhoFonteBasePx}px;
+      line-height: ${espacamentoLinha};
+    }
+    .ticket {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      display: block;
+    }
+    .cabecalho {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: ${Math.max(5, Math.round(tamanhoFonteBasePx * 0.45))}px;
+    }
+    .titulo {
+      font-size: ${fonteTituloPx}px;
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: 0.2px;
+      word-break: break-word;
+      width: 100%;
+      text-align: center;
+      margin: 0 auto;
+    }
+    .subtitulo {
+      font-size: ${fonteSubtituloPx}px;
+      font-weight: 700;
+      margin-top: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.18))}px;
+      line-height: 1.2;
+      width: 100%;
+      text-align: center;
+    }
+    .divisor {
+      border-top: 2px dashed #111;
+      margin: ${Math.max(6, Math.round(tamanhoFonteBasePx * 0.5))}px 0;
+    }
+    .linha {
+      margin-bottom: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.25))}px;
+      word-break: break-word;
+    }
+    .label {
+      font-weight: 700;
+    }
+    .item {
+      margin-bottom: ${espacamentoItensPx}px;
+    }
+    .linha-principal {
+      display: flex;
+      gap: ${Math.max(4, Math.round(tamanhoFonteBasePx * 0.35))}px;
+      align-items: flex-start;
+    }
+    .quantidade {
+      font-weight: 700;
+      min-width: ${larguraQuantidadePx}px;
+      line-height: 1.2;
+    }
+    .nome-item {
+      font-weight: 700;
+      flex: 1;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .adicional {
+      padding-left: ${recuoDetalhesPx}px;
+      font-size: ${Math.max(11, Math.round(tamanhoFonteBasePx * 0.92))}px;
+      word-break: break-word;
+    }
+    .observacao {
+      padding-left: ${recuoDetalhesPx}px;
+      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
+      font-style: italic;
+      word-break: break-word;
+    }
+    .rodape {
+      text-align: center;
+      margin-top: ${Math.max(8, Math.round(tamanhoFonteBasePx * 0.65))}px;
+      font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
+      color: #333;
+    }
+    .total {
+      font-size: ${Math.round(tamanhoFonteBasePx * 1.22)}px;
+      font-weight: 700;
+    }
+    .texto-vazio {
+      font-style: italic;
+      color: #555;
+    }
+  `
+}
+
+const montarConteudoTicket = (dados: DadosTicketImpressao) => {
   const pedido = dados.pedido
   const numeroMesa = obterNumeroMesa(pedido)
   const numeroComanda = obterNumeroComanda(pedido)
@@ -164,122 +301,6 @@ export const gerarHtmlTicket = (
   )
 
   return `
-  <!DOCTYPE html>
-  <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <style>
-      @page {
-        size: ${larguraPapelMm}mm auto;
-        margin: 0;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      html,
-      body {
-        margin: 0;
-        width: ${larguraPapelMm}mm;
-        max-width: ${larguraPapelMm}mm;
-      }
-      body {
-        padding: ${paddingLateralMm}mm;
-        font-family: 'Segoe UI', Arial, sans-serif;
-        color: #000;
-        background: #fff;
-        font-size: ${tamanhoFonteBasePx}px;
-        line-height: ${espacamentoLinha};
-      }
-      .ticket {
-        width: 100%;
-        max-width: 100%;
-        margin: 0 auto;
-        display: block;
-      }
-      .cabecalho {
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: ${Math.max(5, Math.round(tamanhoFonteBasePx * 0.45))}px;
-      }
-      .titulo {
-        font-size: ${fonteTituloPx}px;
-        font-weight: 700;
-        line-height: 1.1;
-        letter-spacing: 0.2px;
-        word-break: break-word;
-        width: 100%;
-        text-align: center;
-        margin: 0 auto;
-      }
-      .subtitulo {
-        font-size: ${fonteSubtituloPx}px;
-        font-weight: 700;
-        margin-top: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.18))}px;
-        line-height: 1.2;
-        width: 100%;
-        text-align: center;
-      }
-      .divisor {
-        border-top: 2px dashed #111;
-        margin: ${Math.max(6, Math.round(tamanhoFonteBasePx * 0.5))}px 0;
-      }
-      .linha {
-        margin-bottom: ${Math.max(2, Math.round(tamanhoFonteBasePx * 0.25))}px;
-        word-break: break-word;
-      }
-      .label {
-        font-weight: 700;
-      }
-      .item {
-        margin-bottom: ${espacamentoItensPx}px;
-      }
-      .linha-principal {
-        display: flex;
-        gap: ${Math.max(4, Math.round(tamanhoFonteBasePx * 0.35))}px;
-        align-items: flex-start;
-      }
-      .quantidade {
-        font-weight: 700;
-        min-width: ${larguraQuantidadePx}px;
-        line-height: 1.2;
-      }
-      .nome-item {
-        font-weight: 700;
-        flex: 1;
-        line-height: 1.2;
-        word-break: break-word;
-      }
-      .adicional {
-        padding-left: ${recuoDetalhesPx}px;
-        font-size: ${Math.max(11, Math.round(tamanhoFonteBasePx * 0.92))}px;
-        word-break: break-word;
-      }
-      .observacao {
-        padding-left: ${recuoDetalhesPx}px;
-        font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
-        font-style: italic;
-        word-break: break-word;
-      }
-      .rodape {
-        text-align: center;
-        margin-top: ${Math.max(8, Math.round(tamanhoFonteBasePx * 0.65))}px;
-        font-size: ${Math.max(10, Math.round(tamanhoFonteBasePx * 0.86))}px;
-        color: #333;
-      }
-      .total {
-        font-size: ${Math.round(tamanhoFonteBasePx * 1.22)}px;
-        font-weight: 700;
-      }
-      .texto-vazio {
-        font-style: italic;
-        color: #555;
-      }
-    </style>
-  </head>
-  <body>
     <div class="ticket">
       <header class="cabecalho">
         <div class="titulo">Açaí Caravelas</div>
@@ -319,7 +340,41 @@ export const gerarHtmlTicket = (
         Impresso em ${escaparHtml(formatarDataHora(new Date().toISOString()))}
       </div>
     </div>
-  </body>
-  </html>
   `
 }
+
+export const gerarHtmlTicketParaImpressao = (dados: DadosTicketImpressao) => {
+  const conteudo = montarConteudoTicket(dados)
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+</head>
+<body>
+${conteudo}
+</body>
+</html>`
+}
+
+export const gerarHtmlTicket = (
+  dados: DadosTicketImpressao,
+  configuracao: ConfiguracaoAplicacao
+) => {
+  const css = gerarCssTicket(configuracao)
+  const conteudo = montarConteudoTicket(dados)
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <style>${css}</style>
+</head>
+<body>
+${conteudo}
+</body>
+</html>`
+}
+
+export const htmlTicketContemCssVisivel = (html: string) =>
+  /<style[\s>]/i.test(html) || /@page\s*\{/.test(html) || /\.ticket\s*\{/.test(html)

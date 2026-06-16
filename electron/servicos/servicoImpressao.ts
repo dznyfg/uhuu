@@ -1,6 +1,11 @@
 import { BrowserWindow } from 'electron'
-import { gerarHtmlTicket } from './formatadorTicket'
+import { gerarCssTicket, gerarHtmlTicketParaImpressao } from './formatadorTicket'
 import { ConfiguracaoAplicacao, DadosTicketImpressao } from './tipos'
+
+const aguardarMs = (tempoMs: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, tempoMs)
+  })
 
 export class ServicoImpressao {
   private obterJanelaPrincipal: () => BrowserWindow | null
@@ -30,11 +35,13 @@ export class ServicoImpressao {
       return { sucesso: false, erro: 'Nenhuma impressora foi configurada.' }
     }
 
-    const htmlTicket = gerarHtmlTicket(dadosTicket, configuracao)
+    const htmlTicket = gerarHtmlTicketParaImpressao(dadosTicket)
+    const cssTicket = gerarCssTicket(configuracao)
 
     for (let copiaAtual = 1; copiaAtual <= configuracao.copias; copiaAtual += 1) {
       const resultado = await this.imprimirCopiaSilenciosa(
         htmlTicket,
+        cssTicket,
         configuracao.nomeImpressora
       )
 
@@ -46,8 +53,45 @@ export class ServicoImpressao {
     return { sucesso: true }
   }
 
+  private async carregarHtmlTicket(
+    janelaImpressao: BrowserWindow,
+    htmlTicket: string
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Tempo esgotado ao preparar o ticket para impressao.'))
+      }, 15000)
+
+      const limpar = () => {
+        clearTimeout(timeout)
+        janelaImpressao.webContents.removeListener('did-finish-load', aoCarregar)
+        janelaImpressao.webContents.removeListener('did-fail-load', aoFalhar)
+      }
+
+      const aoCarregar = () => {
+        limpar()
+        resolve()
+      }
+
+      const aoFalhar = (_evento: Electron.Event, _codigo: number, descricao: string) => {
+        limpar()
+        reject(new Error(descricao || 'Falha ao carregar o ticket para impressao.'))
+      }
+
+      janelaImpressao.webContents.once('did-finish-load', aoCarregar)
+      janelaImpressao.webContents.once('did-fail-load', aoFalhar)
+
+      const urlHtml = `data:text/html;charset=utf-8,${encodeURIComponent(htmlTicket)}`
+      void janelaImpressao.loadURL(urlHtml).catch((erro) => {
+        limpar()
+        reject(erro instanceof Error ? erro : new Error('Falha ao carregar o ticket para impressao.'))
+      })
+    })
+  }
+
   private async imprimirCopiaSilenciosa(
     htmlTicket: string,
+    cssTicket: string,
     nomeImpressora: string
   ): Promise<{ sucesso: boolean; erro?: string }> {
     const janelaImpressao = new BrowserWindow({
@@ -62,8 +106,10 @@ export class ServicoImpressao {
     })
 
     try {
-      const urlHtml = `data:text/html;charset=UTF-8,${encodeURIComponent(htmlTicket)}`
-      await janelaImpressao.loadURL(urlHtml)
+      await this.carregarHtmlTicket(janelaImpressao, htmlTicket)
+      await janelaImpressao.webContents.insertCSS(cssTicket)
+      await janelaImpressao.webContents.executeJavaScript('document.fonts.ready', true)
+      await aguardarMs(200)
 
       const impressoComSucesso = await new Promise<boolean>((resolve) => {
         janelaImpressao.webContents.print(
