@@ -321,6 +321,7 @@ export const gerarCssTicket = (configuracao: ConfiguracaoAplicacao) => {
     .quantidade {
       font-weight: 700;
       display: inline;
+      min-width: ${larguraQuantidadePx}px;
     }
     .nome-item {
       font-weight: 700;
